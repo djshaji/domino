@@ -16,4 +16,14 @@ c.execute(sql, val)
 
 db.commit()
  
+class DB:
+	db = None
+	def __init__ ():
+		db = _mysql.connect("localhost","domino","remembermyname", "domino")
 
+	def insert (table, cols, values):
+		sql = "insert into %s (%s" % (table, cols [0])
+		i = 1
+		values = "%s"
+		for i in range (1, len (cols)):
+			sql += cols 
