@@ -1,4 +1,10 @@
+import os
+import db
 
-
-fed
-with open('x.py') as f: s = f.read()
+class Indexer:
+	db = None
+	def __init__ (self):
+		self.db = DB ()
+		
+	def index (self, dirname):
+		
