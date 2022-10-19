@@ -12,7 +12,7 @@ else:
     from providers.provider import Provider
 
 class Storage (persistent.Persistent):
-    default_database = os.path.expanduser ("~/.config/leila/tags")
+    default_database = os.path.expanduser ("~/.config/domino/tags")
     commit = transaction.commit
     abort = transaction.abort
 

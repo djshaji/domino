@@ -1,5 +1,4 @@
 import MySQLdb as _mysql
-import sql
 
 # db = _mysql.connect("localhost","domino","remembermyname", "domino")
 # db.query("""select * from files""")

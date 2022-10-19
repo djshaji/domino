@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+import gi
+gi.require_version('Gtk', '3.0')
+
 from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, GLib, Pango
 import warnings, os, sys
 from providers.filesystem import Filesystem
@@ -30,6 +33,53 @@ class Config:
             if key in self.config [section]:
                 return self.config [section][key]
         return None
+
+class ConfigDialog (Gtk.Dialog):
+    def __init__ (self):
+        Gtk.Dialog.__init__ (self)
+        self.notebook = Gtk.Notebook.new ()
+        self.get_content_area ().pack_start (self.notebook, 1, 1, 0)
+
+        self.library = Gtk.Grid.new ()
+        self.library.set_vexpand (True)
+        self.library.set_hexpand (True)
+        self.notebook.append_page (self.library, Gtk.Label (label = "Media Library"))
+        lib_title = Gtk.Label.new ()
+        lib_title.set_markup ("<big>Folders to watch</big>")
+        self.library.attach (lib_title, 1, 1, 1, 1)
+
+        self.store = Gtk.TreeStore(str)
+        self.folders = Gtk.TreeView.new_with_model (self.store)
+        self.folders.set_hexpand (True)
+        self.folders.set_vexpand (True)
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("Folder", renderer, text=0)
+        self.folders.append_column(column)
+
+        self.library.attach (self.folders, 1, 2, 15, 5)
+        bb = Gtk.Grid ()
+        self.library.attach (bb, 1, 20, 1, 5)
+
+        self.entry = Gtk.Entry.new ()
+        self.entry.set_hexpand (True)
+        bb.attach (self.entry, 0, 0, 5, 1)
+
+        add = Gtk.Button.new_from_icon_name ('gtk-add', 6)
+        delete = Gtk.Button.new_from_icon_name ('gtk-delete', 6)
+        bb.attach (add, 0, 1, 1, 1)
+        bb.attach (delete, 1, 1, 1, 1)
+
+        add.connect ("activate", lambda *w: self.library_add_folder ())
+
+        self.add_button ("Close", 0).connect ("clicked", lambda *w: self.destroy ())
+
+    def library_add_folder (self):
+        text = self.entry.get_text ()
+        if text == '':
+            return
+        
+        print ('t',text)
+        treeiter = self.store.append (None, text)
 
 class GenericWindow (Gtk.Window):
     icon_theme = Gtk.IconTheme.get_default ()
@@ -108,11 +158,24 @@ class Tab (Gtk.Overlay):
     def reload (self):
         self.open (self.current_path)
     
-    def popup_menu (self):
+    def popup_menu (self, widget = None, event = None):
+        # Lets select something if it is clicked first
+        open_item = Gtk.MenuItem.new_with_mnemonic ('_Open')
+        if event != None:
+            path = self.iconview.get_path_at_pos(event.x, event.y)
+            if path is None:
+                self.iconview.unselect_all()
+            else:
+                self.iconview.select_path (path)
+                open_item.connect ('activate', lambda *w: self.iconview.item_activated (path))
+
         sort = self.provider.get_sort_types ()
         menu = Gtk.Menu ()
         sort_menu = Gtk.Menu ()
-        
+        if (self.iconview.get_selected_items () != []):
+            menu.append (open_item)
+            menu.append (Gtk.SeparatorMenuItem ())
+
         s_item = Gtk.MenuItem.new_with_mnemonic ('_Sort')
         reverse = Gtk.CheckMenuItem.new_with_mnemonic ('_Reverse')
         reverse.set_active (self.provider.get_sort_reverse ())
@@ -162,7 +225,7 @@ class Tab (Gtk.Overlay):
         menu.show_all ()
         m = GLib.MainLoop ()
         menu.connect ('deactivate', lambda *w: m.quit ())
-        menu.popup_for_device (None, None, None, None, None, 0, Gtk.get_current_event_time ())
+        menu.popup ( None, None, None, None, 0, Gtk.get_current_event_time ())
         m.run ()
     
     def up (self):
@@ -254,7 +317,9 @@ class Tab (Gtk.Overlay):
             #print (a)
             self.store.append (a)
         self.ui.addressbar.set_text (path)
-        self.ui.notebook.set_tab_label (self, Gtk.Label (os.path.basename (path)))
+        # print (path)
+        label_ = os.path.basename (path)
+        self.ui.notebook.set_tab_label (self, Gtk.Label (label = label_))
         #if path in self.history:
             #print (self.history, path)
             #self.history = self.history [:self.history.index (path)]
@@ -282,6 +347,8 @@ class Tab (Gtk.Overlay):
         self.iconview.set_text_column (1)
         self.iconview.set_tooltip_column (2)
         
+        self.iconview.connect_after ('button-press-event', self.popup_menu)
+
         self.search = Gtk.SearchBar ()
         self.search.e = Gtk.Entry ()
         self.search.e.connect ('activate', lambda *w: self.search.set_search_mode (False))
@@ -301,6 +368,7 @@ class Window (GenericWindow):
     service_providers = dict () #{'dummy': None}
     ICON_SIZE = 96
     config = Config ()
+    config_dialog = ConfigDialog ()
 
     def icon_zoom_in (self, *w):
         self.ICON_SIZE += 24
@@ -318,7 +386,7 @@ class Window (GenericWindow):
         self.init_autoconfig ()
         self.init_providers ()
         self.maximize ()
-        self.provider.set_active (1)
+        self.provider.set_active (0)
         self.new_tab (self.provider.get_active_text ())
 
     def init_autoconfig (self):
@@ -329,7 +397,7 @@ class Window (GenericWindow):
     
     def init_providers (self):
         self.add_service_provider ('filesystem', Filesystem (self))
-        self.add_service_provider ('videos', Videos (self))
+        # self.add_service_provider ('videos', Videos (self))
     
     def add_shortcut (self, key, callback, meta = False):
         if meta:
@@ -355,10 +423,14 @@ class Window (GenericWindow):
         
         self.add_shortcut (Gdk.KEY_F1, lambda *w: self.toolbar.revealer.set_reveal_child (not self.toolbar.revealer.get_reveal_child ()))
         
-        self.toolbar.back = Gtk.ToolButton.new_from_stock ('gtk-go-back')
-        self.toolbar.up = Gtk.ToolButton.new_from_stock ('gtk-go-up')
-        self.toolbar.forward = Gtk.ToolButton.new_from_stock ('gtk-go-forward')
-        self.toolbar.home = Gtk.ToolButton.new_from_stock ('gtk-home')
+        self.toolbar.back = Gtk.ToolButton.new (Gtk.Image.new_from_icon_name ('gtk-go-back', 48))
+        self.toolbar.up = Gtk.ToolButton.new (Gtk.Image.new_from_icon_name ('gtk-go-up', 48))
+        self.toolbar.forward = Gtk.ToolButton.new (Gtk.Image.new_from_icon_name ('gtk-go-forward', 48))
+        self.toolbar.home = Gtk.ToolButton.new (Gtk.Image.new_from_icon_name ('gtk-go-home', 48))
+        self.toolbar.config = Gtk.ToolButton.new (Gtk.Image.new_from_icon_name ('preferences-other', 48))
+        # self.toolbar.up = Gtk.ToolButton.new_from_stock ('gtk-go-up')
+        # self.toolbar.forward = Gtk.ToolButton.new_from_stock ('gtk-go-forward')
+        # self.toolbar.home = Gtk.ToolButton.new_from_stock ('gtk-home')
 
         self.toolbar.insert (self.toolbar.back, -1)
         self.toolbar.insert (self.toolbar.up, -1)
@@ -382,7 +454,8 @@ class Window (GenericWindow):
         self.notebook.close.set_relief (2)
         self.notebook.close.add (Gtk.Image.new_from_pixbuf (self.icon_theme.load_icon ('gtk-close', 24, Gtk.IconLookupFlags.GENERIC_FALLBACK)))
         self.notebook.close.show_all ()
-        self.notebook.add = Gtk.ToolButton.new_from_stock ('gtk-add')
+        # self.notebook.add = Gtk.ToolButton.new_from_stock ('gtk-add')
+        self.notebook.add = Gtk.ToolButton.new (Gtk.Image.new_from_icon_name ('gtk-add', 48))
         #self.notebook.buttonbox = Gtk.ButtonBox ()
         #self.notebook.buttonbox.pack_start (self.notebook.add, 0, 0, 0)
         #self.notebook.buttonbox.pack_start (self.notebook.close, 0, 0, 0)
@@ -390,11 +463,13 @@ class Window (GenericWindow):
         self.toolbar.insert (self.provider.ti, -1)
         self.toolbar.insert (self.notebook.add, -1)
         self.toolbar.insert (self.addressbar.ti, -1)
+        self.toolbar.insert (self.toolbar.config, -1)
 
         self.notebook.close.connect ('clicked', lambda *w: self.close_current_tab ())
         self.notebook.add.connect ('clicked', lambda *w: self.new_tab (self.provider.get_active_text ()))
         self.add_shortcut (Gdk.KEY_w, self.close_current_tab, meta = True)
         self.add_shortcut (Gdk.KEY_t, lambda *w: self.new_tab (self.provider.get_active_text ()), meta = True)
+        self.add_shortcut (Gdk.KEY_p, lambda *w: self.new_tab (self.config_dialog_show ()), meta = True)
         
         self.addressbar.connect ('activate', lambda *w: self.open (self.addressbar.get_text ()))
         self.addressbar.connect ('activate', lambda *w: self.get_tab ().iconview.grab_focus ())
@@ -422,6 +497,7 @@ class Window (GenericWindow):
         self.toolbar.home.connect ('clicked', lambda *w: self.home ())
         self.toolbar.back.connect ('clicked', lambda *w: self.back ())
         self.toolbar.forward.connect ('clicked', lambda *w: self.forward ())
+        self.toolbar.config.connect ('clicked', lambda *w: self.config_dialog_show ())
     
     
     def add_service_provider (self, name, provider):
@@ -456,9 +532,14 @@ class Window (GenericWindow):
         tab = self.get_tab ()
         tab.open (path)
 
+    def config_dialog_show (self):
+        self.config_dialog.set_size_request (700, 500)
+        self.config_dialog.show_all ()
+        self.config_dialog.run ()
+
     def new_tab (self, provider):
         tab = Tab (self, self.service_providers [provider])
-        self.notebook.append_page (tab, Gtk.Label (provider))
+        self.notebook.append_page (tab, Gtk.Label (label = provider))
         tab.iconview.grab_focus ()
 
     def hotkeys (self, window, event):

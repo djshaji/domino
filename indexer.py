@@ -7,4 +7,5 @@ class Indexer:
 		self.db = DB ()
 		
 	def index (self, dirname):
-		
+		for root, dirs, files in os.walk(dirname):
+
